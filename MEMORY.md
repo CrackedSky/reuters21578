@@ -64,16 +64,21 @@ labels. Split filtering must use the attribute, not the label list.
 language, e.g. `Money/Foreign Exchange (MONEY-FX)`. Use it later to build
 realistic multi-word queries instead of raw codes like `money-fx`.
 
-## Planned modules (6)
+## Modules (6) — all six now exist as skeletons
 
 | # | File | Job | Status |
 |---|---|---|---|
-| 1 | `corpus.py` | Parse `.sgm` files into `Document` objects; filter by split | Done, one bug outstanding |
-| 2 | `preprocess.py` | Raw text → clean list of terms (NLTK) | Skeleton written, blanks unfilled |
-| 3 | `index.py` | Build inverted index (term → documents containing it) | Not started |
-| 4 | `search.py` | Score and rank documents with TF-IDF | Not started |
-| 5 | `evaluate.py` | Precision/recall against the category pseudo-qrels | Not started |
-| 6 | `cli.py` | argparse front end tying it together | Not started |
+| 1 | `corpus.py` | Parse `.sgm` files into `Document` objects; filter by split | **Complete**, all 5 checks pass |
+| 2 | `preprocess.py` | Raw text → clean list of terms (NLTK) | **Complete**, all 6 checks pass |
+| 3 | `index.py` | Build inverted index (term → documents containing it) | TODO 3, 4 done; **1, 2, 5 open** |
+| 4 | `search.py` | Score and rank documents with TF-IDF cosine | Skeleton, 5 TODOs open |
+| 5 | `evaluate.py` | Precision/recall/MAP against category pseudo-qrels | Skeleton, 5 TODOs open |
+| 6 | `cli.py` | argparse front end tying it together | Skeleton, 3 TODOs open |
+
+Suggested split for two people: one takes `index.py` + `search.py` (the
+ranking maths), the other takes `evaluate.py` + `cli.py` (metrics and front
+end). They only meet at function signatures, which are already fixed by the
+skeletons, so the two halves can be written in parallel without conflicts.
 
 Data flow: `corpus.py` loads documents → `preprocess.py` cleans them →
 `index.py` builds the index. At search time a query goes through the *same*
@@ -91,28 +96,38 @@ and gets OK/FAIL per check. Claude then reviews the filled-in code.
 Build modules in order 1, 2, 3, 4, 6 to get a working search you can type
 into; add 5 afterwards.
 
-## Outstanding issue — fix this first next session
+## Verified baseline (what "correct" looks like)
 
-`corpus.py` line 139 has an extra pair of square brackets:
+These come from a working reference implementation run against the training
+index, and are baked into the self-checks. Anything filled in correctly should
+reproduce them exactly.
 
-```python
-categories = [D_RE.findall(topics)]   # wrong — produces [['cocoa']]
-categories = D_RE.findall(topics)     # correct
-```
-
-`findall()` already returns a list, so wrapping it creates a nested list. The
-practical damage: an article with no topics becomes `[[]]`, which is truthy
-because it is a one-element list, so every one of the 9,603 articles counts as
-having categories. The self-check catches this — two lines currently report
-FAIL (9,603 vs 7,775 expected, and 3,299 vs 3,019 expected).
-
-The `clean_text()` fix on lines 131–132 was applied correctly and is working.
+- Index: N = 9,603 documents, vocabulary = 19,229 terms, ~35 s to build.
+- `df('cocoa')` = 59, `idf('cocoa')` ≈ 2.212; `df('bank')` = 1,859, idf ≈ 0.713.
+- Document 1 norm ≈ 27.395.
+- Search for `"cocoa"`: top hit is document 10471 at score ≈ 0.4767.
+- Toy corpus: query `"cat dog"` scores document 2 at exactly 1.0, because that
+  document *is* `['cat', 'dog']` — same terms, same proportions, zero angle.
+- Evaluation over all 115 training categories: **MAP = 0.3487**.
+- Per category: cocoa AP = 0.945, coffee = 0.815, sugar = 0.701, gold = 0.299,
+  ship = 0.208. Rare, distinctive topics do well; broad ones do badly.
+- MAP over the 10 largest categories is only 0.179, versus 0.349 overall —
+  the head/tail contrast is the most interesting result in the dataset and
+  should be a figure in the report.
 
 ## Next steps
 
-1. Fix the `corpus.py` bracket bug above; confirm all five checks say OK.
-2. Fill the five TODOs in `preprocess.py`; confirm all six checks say OK.
-3. Move on to `index.py` (inverted index).
+1. Finish `index.py` TODOs 1, 2 and 5.
+2. Fill `search.py` (5 TODOs), then `evaluate.py` (5), then `cli.py` (3).
+3. Once `cli.py eval` reproduces MAP = 0.3487, that is the baseline. Every
+   later improvement gets compared against it — that comparison is the
+   experimental evaluation section of the report.
+
+Ideas already discussed for improvements, in rough order of effort: a
+corpus-specific stopword list (NLTK's 198 words miss "throughout",
+"although", "said"); building queries from `cat-descriptions_120396.txt`
+instead of bare category codes; lemmatisation instead of stemming; then BM25,
+query expansion and spelling correction if time allows.
 
 ## Environment
 
