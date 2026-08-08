@@ -60,6 +60,8 @@ def tf_weight(tf: int) -> float: # tf: term frequency
 
 @dataclass
 class InvertedIndex:
+    # df: document frequency
+    # idf: inverse document frequency (log10(N / df), where N = 9603)
     postings: Dict[str, Dict[int, int]]
     doc_norms: Dict[int, float]
     titles: Dict[int, str]
@@ -92,7 +94,7 @@ class InvertedIndex:
                  would divide by zero. Otherwise return log10(N / df), using
                  self.num_docs for N and math.log10().
         """
-        return 0.0 if self.document_frequency(term) == 0 else math.log10(self.num_docs / self.document_frequency(term))  # <-- your code here
+        return 0.0 if self.document_frequency(term) == 0 else math.log10(self.num_docs / self.document_frequency(term))
 
 
 # --------------------------------------------------------------------------
@@ -119,7 +121,7 @@ def build_index(documents: List[Document]) -> InvertedIndex:
         # TODO(1): Count how many times each term appears in THIS document.
         #          collections.Counter is imported for you and does exactly
         #          this: Counter(["a", "b", "a"]) gives {"a": 2, "b": 1}.
-        counts = {}  # <-- your code here
+        counts = Counter(terms)  # <-- your code here
 
         # TODO(2): Merge those counts into `postings`.
         #          For each term and its count, record it under
@@ -128,7 +130,10 @@ def build_index(documents: List[Document]) -> InvertedIndex:
         #          postings.setdefault(term, {}) which returns the existing
         #          dict or inserts a fresh empty one.
         #          Hint: for term, count in counts.items():
-        pass  # <-- your code here
+        for term, count in counts.items():
+            if term not in postings:
+                postings[term] = {}
+            postings[term][doc.doc_id] = count
 
     index = InvertedIndex(postings=postings, doc_norms=doc_norms, titles=titles)
 
@@ -156,7 +161,14 @@ def build_index(documents: List[Document]) -> InvertedIndex:
     #
     #   This must happen AFTER the loop above, because idf() needs the
     #   complete postings for the whole collection before it means anything.
-    pass  # <-- your code here
+    for term, plist in index.postings.items():
+        weight_idf = index.idf(term)
+        for doc_id, tf in plist.items():
+            index.doc_norms[doc_id] += (tf_weight(tf) * weight_idf) ** 2
+
+    # Take the square root of each accumulated total
+    for doc_id in index.doc_norms:
+        index.doc_norms[doc_id] = math.sqrt(index.doc_norms[doc_id])
 
     return index
 
