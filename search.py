@@ -49,73 +49,54 @@ def search(index: InvertedIndex, query: str, top_k: int = 10) -> List[Result]:
     """Return the top_k (doc_id, score) pairs, best first."""
 
     # TODO(1): Preprocess the query into a list of terms.
-    #          Use preprocess() from preprocess.py -- the SAME function the
-    #          documents went through. If you use anything else here, the
-    #          query terms will not match the indexed terms and every search
-    #          returns nothing.
-    query_terms = []  # <-- your code here
+    query_terms = preprocess(query)
 
-    # TODO(2): Build the query's term weights: {term: weight}.
-    #          Same weighting as documents got in index.py:
-    #              weight = tf_weight(count in query) * index.idf(term)
-    #          Counter(query_terms) gives you the counts.
-    #
-    #          Then DROP any term whose weight is 0. A weight of 0 means
-    #          idf is 0, i.e. the term is not in the collection at all
-    #          (someone searched for "banana"). Keeping it would contribute
-    #          nothing but would distort the query norm below.
-    query_weights = {}  # <-- your code here
+    # TODO(2): Build the query's term weights.
+    query_counts = Counter(query_terms)
+    query_weights = {}
 
-    # Nothing usable in the query -> no results. (Given.)
+    for term, count in query_counts.items():
+        weight = tf_weight(count) * index.idf(term)
+
+        if weight != 0:
+            query_weights[term] = weight
+
+    # Nothing usable in the query -> no results.
     if not query_weights:
         return []
 
-    # TODO(3): Accumulate a raw score for every candidate document.
-    #
-    #          This is the heart of the whole system, and it is where the
-    #          inverted index pays off: we only ever touch documents that
-    #          actually contain a query term.
-    #
-    #            for each term and its query weight in query_weights:
-    #                look up index.postings.get(term, {})
-    #                for each doc_id and tf in that postings dict:
-    #                    doc_weight = tf_weight(tf) * index.idf(term)
-    #                    add (query_weight * doc_weight) onto scores[doc_id]
-    #
-    #          Use scores.get(doc_id, 0.0) to start a document at zero the
-    #          first time you see it. Documents matching several query terms
-    #          accumulate several contributions, which is exactly what we
-    #          want -- matching two query words beats matching one.
-    scores = {}  # <-- your code here
+    # TODO(3): Accumulate raw scores for candidate documents.
+    scores = {}
 
-    # TODO(4): Normalise, turning raw overlap into a cosine similarity.
-    #
-    #          First compute the query norm, once:
-    #              query_norm = sqrt(sum of w*w for w in query_weights.values())
-    #
-    #          Then divide every document's raw score by
-    #              index.doc_norms[doc_id] * query_norm
-    #
-    #          Guard against a zero document norm (the 54 empty articles)
-    #          by scoring those 0.0 instead of dividing by zero. In practice
-    #          they never appear here, since an empty document is in nobody's
-    #          postings list, but defensive code beats a crash in a demo.
-    #
-    #          Note the query norm is the same for every document, so it does
-    #          not change the ORDER. We divide by it anyway so scores are on
-    #          a 0-1 scale, which is much nicer to display.
-    pass  # <-- your code here
+    for term, query_weight in query_weights.items():
+        postings = index.postings.get(term, {})
 
-    # TODO(5): Sort and return the best top_k.
-    #
-    #          Sort by score DESCENDING. Break ties by doc_id ASCENDING, so
-    #          that runs are reproducible -- without a tie-break, equally
-    #          scored documents come back in arbitrary dict order and your
-    #          experiments will not reproduce.
-    #
-    #          Hint: sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
-    #          then slice [:top_k].
-    return []  # <-- your code here
+        for doc_id, tf in postings.items():
+            doc_weight = tf_weight(tf) * index.idf(term)
+
+            scores[doc_id] = (
+                scores.get(doc_id, 0.0)
+                + query_weight * doc_weight
+            )
+
+    # TODO(4): Cosine normalisation.
+    query_norm = math.sqrt(
+        sum(weight * weight for weight in query_weights.values())
+    )
+
+    for doc_id in scores:
+        doc_norm = index.doc_norms[doc_id]
+
+        if doc_norm == 0.0:
+            scores[doc_id] = 0.0
+        else:
+            scores[doc_id] = scores[doc_id] / (doc_norm * query_norm)
+
+    # TODO(5): Sort best score first.
+    return sorted(
+        scores.items(),
+        key=lambda kv: (-kv[1], kv[0])
+    )[:top_k]
 
 
 # --------------------------------------------------------------------------

@@ -55,7 +55,9 @@ def build_qrels(documents: Sequence[Document]) -> Qrels:
              Documents with no categories simply contribute nothing.
     """
     qrels: Qrels = {}
-    # <-- your code here
+    for doc in documents:
+        for category in doc.categories:
+            qrels.setdefault(category, set()).add(doc.doc_id)
     return qrels
 
 
@@ -90,7 +92,11 @@ def precision_at_k(results: List[Result], relevant: Set[int], k: int) -> float:
              shown to the user as empty, so they count against you.
              Return 0.0 if k is 0.
     """
-    return 0.0  # <-- your code here
+    if k <= 0:
+        return 0.0
+
+    hits = sum(1 for doc_id, _ in results[:k] if doc_id in relevant)
+    return hits / k
 
 
 def recall_at_k(results: List[Result], relevant: Set[int], k: int) -> float:
@@ -103,7 +109,11 @@ def recall_at_k(results: List[Result], relevant: Set[int], k: int) -> float:
              number of relevant documents, len(relevant).
              Return 0.0 if `relevant` is empty, to avoid dividing by zero.
     """
-    return 0.0  # <-- your code here
+    if not relevant:
+        return 0.0
+
+    hits = sum(1 for doc_id, _ in results[:k] if doc_id in relevant)
+    return hits / len(relevant)
 
 
 def average_precision(results: List[Result], relevant: Set[int]) -> float:
@@ -135,7 +145,18 @@ def average_precision(results: List[Result], relevant: Set[int]) -> float:
              counts as a zero. That is intentional -- missing documents
              should hurt your score.
     """
-    return 0.0  # <-- your code here
+    if not relevant:
+        return 0.0
+
+    hits = 0
+    precision_sum = 0.0
+
+    for rank, (doc_id, _) in enumerate(results, start=1):
+        if doc_id in relevant:
+            hits += 1
+            precision_sum += hits / rank
+
+    return precision_sum / len(relevant)
 
 
 # --------------------------------------------------------------------------
@@ -166,7 +187,22 @@ def evaluate_all(index, qrels: Qrels, top_k: int = 100,
     p10s: List[float] = []
     r10s: List[float] = []
 
-    # <-- your code here
+    for category in sorted(qrels):
+        query = category_to_query(category)
+        results = search(index, query, top_k)
+        relevant = qrels[category]
+
+        ap = average_precision(results, relevant)
+        p10 = precision_at_k(results, relevant, 10)
+        r10 = recall_at_k(results, relevant, 10)
+
+        aps.append(ap)
+        p10s.append(p10)
+        r10s.append(r10)
+
+        if verbose:
+            print("%-15s #rel=%4d  P@10=%.3f  R@10=%.3f  AP=%.4f"
+                  % (category, len(relevant), p10, r10, ap))
 
     mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
     return {"map": mean(aps), "p@10": mean(p10s), "r@10": mean(r10s)}

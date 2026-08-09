@@ -66,7 +66,11 @@ def cmd_search(args) -> int:
              format_results() already handles the empty case, so you do not
              need to special-case "no matches" yourself.
     """
-    # <-- your code here
+    index = get_index(args.split)
+    results = search(index, args.query, args.top)
+
+    print("Query: %r" % args.query)
+    print(format_results(index, results))
     return 0
 
 
@@ -106,7 +110,16 @@ def cmd_eval(args) -> int:
              many categories were evaluated (len(qrels)), because a metric
              without its query count is not reproducible.
     """
-    # <-- your code here
+    documents = load_documents(args.split)
+    qrels = build_qrels(documents)
+    index = get_index(args.split)
+    results = evaluate_all(index, qrels, top_k=args.top,
+                           verbose=args.verbose)
+
+    print("Evaluated %d categories." % len(qrels))
+    print("MAP  = %.4f" % results["map"])
+    print("P@10 = %.4f" % results["p@10"])
+    print("R@10 = %.4f" % results["r@10"])
     return 0
 
 
@@ -138,7 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
     #    c. an optional "--split", exactly like the one on p_build above.
     #    d. p_search.set_defaults(func=cmd_search)
     #
-    # <-- your code here
+    p_search.add_argument("query", help="query string to search for")
+    p_search.add_argument("--top", type=int, default=10,
+                          help="number of results to show (default: 10)")
+    p_search.add_argument("--split", default="train", choices=["train", "test"],
+                          help="which ModApte split to search (default: train)")
+    p_search.set_defaults(func=cmd_search)
 
     # --- interactive (given) ---------------------------------------------
     p_int = sub.add_parser("interactive", help="type queries in a loop")
