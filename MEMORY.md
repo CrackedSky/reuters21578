@@ -68,12 +68,16 @@ realistic multi-word queries instead of raw codes like `money-fx`.
 
 | # | File | Job | Status |
 |---|---|---|---|
-| 1 | `corpus.py` | Parse `.sgm` files into `Document` objects; filter by split | **Complete**, all 5 checks pass |
-| 2 | `preprocess.py` | Raw text → clean list of terms (NLTK) | **Complete**, all 6 checks pass |
-| 3 | `index.py` | Build inverted index (term → documents containing it) | TODO 3, 4 done; **1, 2, 5 open** |
-| 4 | `search.py` | Score and rank documents with TF-IDF cosine | Skeleton, 5 TODOs open |
-| 5 | `evaluate.py` | Precision/recall/MAP against category pseudo-qrels | Skeleton, 5 TODOs open |
-| 6 | `cli.py` | argparse front end tying it together | Skeleton, 3 TODOs open |
+| 1 | `corpus.py` | Parse `.sgm` files into `Document` objects; filter by split | **Complete**, 5/5 checks pass |
+| 2 | `preprocess.py` | Raw text → clean list of terms (NLTK) | **Complete**, 6/6 checks pass |
+| 3 | `index.py` | Build inverted index (term → documents containing it) | **Complete**, 16/16 checks pass |
+| 4 | `search.py` | Score and rank documents with TF-IDF cosine | **Complete**, 10/10 checks pass |
+| 5 | `evaluate.py` | Precision/recall/MAP against category pseudo-qrels | **Complete**, 11/11 checks pass |
+| 6 | `cli.py` | argparse front end tying it together | **Complete**, all 4 commands work |
+
+**The end-to-end system works and reproduces MAP = 0.3487.** Verified working
+commands: `cli.py build`, `cli.py search "..."`, `cli.py eval`,
+`cli.py interactive`.
 
 Suggested split for two people: one takes `index.py` + `search.py` (the
 ranking maths), the other takes `evaluate.py` + `cli.py` (metrics and front
@@ -115,13 +119,40 @@ reproduce them exactly.
   the head/tail contrast is the most interesting result in the dataset and
   should be a figure in the report.
 
+## Bug already hit and fixed — do not reintroduce
+
+`save_index()` originally pickled the `InvertedIndex` **object**. Pickle
+records a class by its module path, so an index saved while `index.py` was
+running as `__main__` was stamped `__main__.InvertedIndex`. Loading it from
+`evaluate.py` or `cli.py` then crashed with
+`AttributeError: Can't get attribute 'InvertedIndex' on <module '__main__'>`,
+because by then `__main__` was a different file. `search.py` accidentally
+escaped it, since it imports `InvertedIndex` at the top, so the name happened
+to exist in its `__main__`.
+
+Fixed by pickling a plain dict of the three fields and rebuilding the
+`InvertedIndex` on load. Plain data has no module path to get wrong. If
+`index_train.pkl` ever throws this error again, delete it and run
+`python cli.py build`.
+
 ## Next steps
 
-1. Finish `index.py` TODOs 1, 2 and 5.
-2. Fill `search.py` (5 TODOs), then `evaluate.py` (5), then `cli.py` (3).
-3. Once `cli.py eval` reproduces MAP = 0.3487, that is the baseline. Every
-   later improvement gets compared against it — that comparison is the
-   experimental evaluation section of the report.
+The baseline is done. Everything from here is improvement work for the
+evaluation section, which is where 8 of the 25 marks sit. Compare each change
+against MAP = 0.3487 and keep the numbers in a table.
+
+Rough order of effort:
+
+1. Corpus-specific stopwords — NLTK's 198 words miss "said", "throughout",
+   "although", which are everywhere in newswire text.
+2. Build queries from `cat-descriptions_120396.txt` instead of bare category
+   codes, giving realistic multi-word queries.
+3. Lemmatisation instead of stemming (`WordNetLemmatizer`), as an A/B test.
+4. Then BM25, query expansion, spelling correction if time allows.
+
+Also still to do: run the final evaluation on the **test** split
+(`cli.py build --split test`, `cli.py eval --split test`) so the reported
+numbers are held-out rather than tuned-on. And the report itself.
 
 Ideas already discussed for improvements, in rough order of effort: a
 corpus-specific stopword list (NLTK's 198 words miss "throughout",

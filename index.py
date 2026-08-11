@@ -178,13 +178,31 @@ def build_index(documents: List[Document]) -> InvertedIndex:
 # --------------------------------------------------------------------------
 
 def save_index(index: InvertedIndex, filename: str) -> None:
+    """Cache an index to disk.
+
+    Note we pickle a plain dict of the three fields, NOT the InvertedIndex
+    object itself. Pickle stores a class by its module path, so an object
+    pickled while this file was running as __main__ gets recorded as
+    "__main__.InvertedIndex". Loading that from any other script then fails,
+    because by then __main__ is a different file. Storing plain data sidesteps
+    the whole problem: dicts have no module path to get wrong.
+    """
+    payload = {
+        "postings": index.postings,
+        "doc_norms": index.doc_norms,
+        "titles": index.titles,
+    }
     with open(os.path.join(DATA_DIR, filename), "wb") as f:
-        pickle.dump(index, f)
+        pickle.dump(payload, f)
 
 
 def load_index(filename: str) -> InvertedIndex:
+    """Load a cached index, rebuilding the InvertedIndex around the raw data."""
     with open(os.path.join(DATA_DIR, filename), "rb") as f:
-        return pickle.load(f)
+        payload = pickle.load(f)
+    return InvertedIndex(postings=payload["postings"],
+                         doc_norms=payload["doc_norms"],
+                         titles=payload["titles"])
 
 
 # --------------------------------------------------------------------------
