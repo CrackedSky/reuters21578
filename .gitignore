@@ -2,3 +2,4 @@ index_train.pkl
 
 *.doc
 *.docx
+*.pyc
