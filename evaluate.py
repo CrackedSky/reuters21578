@@ -29,7 +29,7 @@ Fill in the TODO blanks, then check your work with:
 from typing import Dict, List, Sequence, Set, Tuple
 
 from corpus import Document, load_documents
-from search import search, get_index
+from search import search, search_bm25, get_index
 
 Result = Tuple[int, float]
 Qrels = Dict[str, Set[int]]
@@ -164,32 +164,44 @@ def average_precision(results: List[Result], relevant: Set[int]) -> float:
 # --------------------------------------------------------------------------
 
 def evaluate_all(index, qrels: Qrels, top_k: int = 100,
-                 verbose: bool = False) -> Dict[str, float]:
+                 verbose: bool = False, model: str = "tfidf",
+                 k1: float = 1.5, b: float = 0.75) -> Dict[str, float]:
     """Run every category as a query and average the results.
 
-    Returns a dict with "map", "p@10" and "r@10", each averaged over queries.
-    MAP (Mean Average Precision) is just the mean of average_precision over
-    all queries -- the single number most IR papers lead with.
+    model:
+        "tfidf" -> TF-IDF cosine similarity
+        "bm25"  -> BM25 ranking
 
-    TODO(5): For each category in sorted(qrels):
-               - turn it into a query with category_to_query()
-               - run search(index, query, top_k)
-               - append average_precision(...) to `aps`
-               - append precision_at_k(..., 10) to `p10s`
-               - append recall_at_k(..., 10) to `r10s`
-               - if verbose, print a line per category so you can see which
-                 topics do well and which do badly
-
-             Sorted, so runs are reproducible and comparable.
-             Then return the mean of each list.
+    k1 and b are only used for BM25.
     """
+
+    if model not in ("tfidf", "bm25"):
+        raise ValueError("model must be 'tfidf' or 'bm25'")
+
     aps: List[float] = []
     p10s: List[float] = []
     r10s: List[float] = []
 
     for category in sorted(qrels):
+
         query = category_to_query(category)
-        results = search(index, query, top_k)
+
+        # Choose retrieval model
+        if model == "bm25":
+            results = search_bm25(
+                index,
+                query,
+                top_k,
+                k1=k1,
+                b=b
+            )
+        else:
+            results = search(
+                index,
+                query,
+                top_k
+            )
+
         relevant = qrels[category]
 
         ap = average_precision(results, relevant)
@@ -201,11 +213,24 @@ def evaluate_all(index, qrels: Qrels, top_k: int = 100,
         r10s.append(r10)
 
         if verbose:
-            print("%-15s #rel=%4d  P@10=%.3f  R@10=%.3f  AP=%.4f"
-                  % (category, len(relevant), p10, r10, ap))
+            print(
+                "%-15s #rel=%4d  P@10=%.3f  R@10=%.3f  AP=%.4f"
+                % (
+                    category,
+                    len(relevant),
+                    p10,
+                    r10,
+                    ap
+                )
+            )
 
     mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
-    return {"map": mean(aps), "p@10": mean(p10s), "r@10": mean(r10s)}
+
+    return {
+        "map": mean(aps),
+        "p@10": mean(p10s),
+        "r@10": mean(r10s)
+    }
 
 
 # --------------------------------------------------------------------------

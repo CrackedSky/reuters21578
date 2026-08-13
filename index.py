@@ -13,11 +13,13 @@ document -> words. Going term -> documents is what makes search fast: to
 answer a query we only look at documents that actually contain a query
 term, instead of scanning all 9,603 articles.
 
-We store three things:
+We store five things:
 
-  postings   term -> {doc_id: how many times the term occurs in that doc}
-  doc_norms  doc_id -> the "length" of that document's weight vector
-  titles     doc_id -> title, purely so results are readable on screen
+  postings        term -> {doc_id: how many times the term occurs in that doc}
+  doc_norms       doc_id -> TF-IDF vector norm (for cosine similarity)
+  titles          doc_id -> title, purely so results are readable on screen
+  doc_lengths     doc_id -> number of preprocessed terms (for BM25)
+  avg_doc_length  average preprocessed document length (for BM25)
 
 Fill in the TODO blanks, then check your work with:
 
@@ -31,7 +33,7 @@ import os
 import math
 import pickle
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List
 
 from corpus import Document, load_documents
@@ -65,6 +67,8 @@ class InvertedIndex:
     postings: Dict[str, Dict[int, int]]
     doc_norms: Dict[int, float]
     titles: Dict[int, str]
+    doc_lengths: Dict[int, int] = field(default_factory=dict)
+    avg_doc_length: float = 0.0
 
     @property
     def num_docs(self) -> int:
@@ -112,11 +116,14 @@ def build_index(documents: List[Document]) -> InvertedIndex:
     # preprocessing (they are stubs or pure numbers). They can never be
     # retrieved, but they must still count towards N or every IDF is wrong.
     doc_norms = {d.doc_id: 0.0 for d in documents}
+    # BM25 needs each document length after the SAME preprocessing pipeline.
+    doc_lengths = {d.doc_id: 0 for d in documents}
 
     for doc in documents:
         # Only doc.text -- title + body. Never doc.categories, which is the
         # answer key we grade against later.
         terms = preprocess(doc.text)
+        doc_lengths[doc.doc_id] = len(terms)
 
         # TODO(1): Count how many times each term appears in THIS document.
         #          collections.Counter is imported for you and does exactly
@@ -135,7 +142,11 @@ def build_index(documents: List[Document]) -> InvertedIndex:
                 postings[term] = {}
             postings[term][doc.doc_id] = count
 
-    index = InvertedIndex(postings=postings, doc_norms=doc_norms, titles=titles)
+    avg_doc_length = (sum(doc_lengths.values()) / len(documents)
+                      if documents else 0.0)
+    index = InvertedIndex(postings=postings, doc_norms=doc_norms, titles=titles,
+                          doc_lengths=doc_lengths,
+                          avg_doc_length=avg_doc_length)
 
     # TODO(5): Fill in the document norms.
     #
@@ -174,35 +185,44 @@ def build_index(documents: List[Document]) -> InvertedIndex:
 
 
 # --------------------------------------------------------------------------
+# BM25 length-stat compatibility helper
+# --------------------------------------------------------------------------
+
+def ensure_length_stats(index: InvertedIndex) -> InvertedIndex:
+    """Ensure an index has the document-length statistics BM25 needs.
+
+    Older cached index_*.pkl files were created before `doc_lengths` and
+    `avg_doc_length` existed. Their postings still contain every raw term
+    frequency, so we can reconstruct the lengths without reparsing Reuters.
+    """
+    if (getattr(index, "doc_lengths", None)
+            and getattr(index, "avg_doc_length", 0.0) > 0.0):
+        return index
+
+    doc_lengths = {doc_id: 0 for doc_id in index.doc_norms}
+    for plist in index.postings.values():
+        for doc_id, tf in plist.items():
+            doc_lengths[doc_id] += tf
+
+    index.doc_lengths = doc_lengths
+    index.avg_doc_length = (sum(doc_lengths.values()) / index.num_docs
+                            if index.num_docs else 0.0)
+    return index
+
+
+# --------------------------------------------------------------------------
 # Saving and loading (given -- boilerplate, but it saves you 35s every run)
 # --------------------------------------------------------------------------
 
 def save_index(index: InvertedIndex, filename: str) -> None:
-    """Cache an index to disk.
-
-    Note we pickle a plain dict of the three fields, NOT the InvertedIndex
-    object itself. Pickle stores a class by its module path, so an object
-    pickled while this file was running as __main__ gets recorded as
-    "__main__.InvertedIndex". Loading that from any other script then fails,
-    because by then __main__ is a different file. Storing plain data sidesteps
-    the whole problem: dicts have no module path to get wrong.
-    """
-    payload = {
-        "postings": index.postings,
-        "doc_norms": index.doc_norms,
-        "titles": index.titles,
-    }
     with open(os.path.join(DATA_DIR, filename), "wb") as f:
-        pickle.dump(payload, f)
+        pickle.dump(index, f)
 
 
 def load_index(filename: str) -> InvertedIndex:
-    """Load a cached index, rebuilding the InvertedIndex around the raw data."""
     with open(os.path.join(DATA_DIR, filename), "rb") as f:
-        payload = pickle.load(f)
-    return InvertedIndex(postings=payload["postings"],
-                         doc_norms=payload["doc_norms"],
-                         titles=payload["titles"])
+        index = pickle.load(f)
+    return ensure_length_stats(index)
 
 
 # --------------------------------------------------------------------------
@@ -232,6 +252,10 @@ if __name__ == "__main__":
         ("toy: idf of unknown term == 0.0", toy.idf("banana") == 0.0),
         ("toy: rarer term has higher idf", toy.idf("mat") > toy.idf("cat")),
         ("toy: all norms > 0", all(v > 0 for v in toy.doc_norms.values())),
+        ("toy: document lengths are 3, 3, 2",
+         toy.doc_lengths == {0: 3, 1: 3, 2: 2}),
+        ("toy: average document length is 8/3",
+         abs(toy.avg_doc_length - 8 / 3) < 1e-9),
     ]
 
     print()

@@ -3,7 +3,12 @@ search.py
 =========
 Step 4 of the IR pipeline: score documents against a query and rank them.
 
-We use TF-IDF with cosine similarity. The idea in one paragraph:
+This module supports two ranking models:
+
+  1. TF-IDF with cosine similarity (the original baseline)
+  2. BM25 (an additional ranking method for comparison)
+
+The TF-IDF idea in one paragraph:
 
   Think of each document as a point in space, with one axis per term. A
   document's position along the "cocoa" axis is how strongly it is about
@@ -100,6 +105,53 @@ def search(index: InvertedIndex, query: str, top_k: int = 10) -> List[Result]:
 
 
 # --------------------------------------------------------------------------
+# BM25 ranking
+# --------------------------------------------------------------------------
+
+def bm25_idf(index: InvertedIndex, term: str) -> float:
+    """Robertson/Sparck Jones IDF variant used by BM25.
+
+    The +1 keeps IDF non-negative even for very common terms:
+        ln(1 + (N - df + 0.5) / (df + 0.5))
+    """
+    df = index.document_frequency(term)
+    if df == 0:
+        return 0.0
+    return math.log(1.0 + (index.num_docs - df + 0.5) / (df + 0.5))
+
+
+def search_bm25(index: InvertedIndex, query: str, top_k: int = 10,
+                 k1: float = 1.5, b: float = 0.75) -> List[Result]:
+    """Return the top_k documents ranked with BM25.
+
+    k1 controls term-frequency saturation. b controls document-length
+    normalisation (0 = none, 1 = full). Common defaults are around
+    k1=1.2-2.0 and b=0.75.
+    """
+    query_terms = preprocess(query)
+    if not query_terms or index.avg_doc_length <= 0.0:
+        return []
+
+    scores = {}
+
+    # For short IR queries, standard BM25 usually treats each distinct query
+    # term once. Repeating a word in the query therefore does not multiply it.
+    for term in set(query_terms):
+        idf = bm25_idf(index, term)
+        if idf == 0.0:
+            continue
+
+        for doc_id, tf in index.postings.get(term, {}).items():
+            doc_length = index.doc_lengths.get(doc_id, 0)
+            length_norm = 1.0 - b + b * (doc_length / index.avg_doc_length)
+            denominator = tf + k1 * length_norm
+            term_score = idf * (tf * (k1 + 1.0)) / denominator
+            scores[doc_id] = scores.get(doc_id, 0.0) + term_score
+
+    return sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[:top_k]
+
+
+# --------------------------------------------------------------------------
 # Display helper (given)
 # --------------------------------------------------------------------------
 
@@ -150,6 +202,7 @@ if __name__ == "__main__":
     r_cat = search(toy, "cat")
     r_sat = search(toy, "sat")
     r_both = search(toy, "cat dog")
+    r_bm25 = search_bm25(toy, "cat dog")
 
     toy_checks = [
         ("toy: 'cat' finds docs 2 and 0, in that order",
@@ -171,8 +224,12 @@ if __name__ == "__main__":
         ("toy: unknown word returns nothing",
          search(toy, "banana") == []),
 
-        ("toy: every score lies between 0 and 1",
+        ("toy: every TF-IDF score lies between 0 and 1",
          all(0.0 <= s <= 1.0 + 1e-9 for _, s in r_cat + r_sat + r_both)),
+        ("toy: BM25 'cat dog' ranks exact two-term doc 2 first",
+         r_bm25 and r_bm25[0][0] == 2),
+        ("toy: BM25 unknown word returns nothing",
+         search_bm25(toy, "banana") == []),
     ]
 
     print()
